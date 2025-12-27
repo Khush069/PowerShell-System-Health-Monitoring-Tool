@@ -1,0 +1,110 @@
+# -------------------------------------------------
+# PowerShell System Health Monitoring Tool
+# -------------------------------------------------
+
+# Report Location
+$reportPath = "$env:USERPROFILE\Desktop\System_Health_Report.html"
+
+# Thresholds
+$cpuThreshold    = 80
+$memoryThreshold = 80
+$diskThreshold   = 20   # % free space
+
+# ------------------------------
+# CPU Usage
+# ------------------------------
+$cpuUsage = (Get-Counter '\Processor(_Total)\% Processor Time').CounterSamples.CookedValue
+$cpuUsage = [math]::Round($cpuUsage, 2)
+
+# ------------------------------
+# Memory Usage
+# ------------------------------
+$os = Get-CimInstance Win32_OperatingSystem
+$totalMemory = $os.TotalVisibleMemorySize
+$freeMemory  = $os.FreePhysicalMemory
+$memoryUsage = ((($totalMemory - $freeMemory) / $totalMemory) * 100)
+$memoryUsage = [math]::Round($memoryUsage, 2)
+
+# ------------------------------
+# Disk Usage
+# ------------------------------
+$diskInfo = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" |
+    Select-Object DeviceID,
+    @{Name="FreeSpace(%)";Expression={[math]::Round(($_.FreeSpace/$_.Size)*100,2)}}
+
+# ------------------------------
+# Critical Services
+# ------------------------------
+$criticalServices = @("Spooler", "wuauserv", "WinRM")
+$serviceStatus = Get-Service -Name $criticalServices |
+    Select-Object Name, Status
+
+# ------------------------------
+# Health Status Logic
+# ------------------------------
+$cpuStatus    = if ($cpuUsage -gt $cpuThreshold) { "High Usage" } else { "Normal" }
+$memoryStatus = if ($memoryUsage -gt $memoryThreshold) { "High Usage" } else { "Normal" }
+
+# ------------------------------
+# HTML Report
+# ------------------------------
+$html = @"
+<html>
+<head>
+<title>System Health Report</title>
+<style>
+body { font-family: Arial; background-color:#f4f4f4; }
+table { border-collapse: collapse; width: 70%; margin: 20px auto; }
+th, td { border: 1px solid #ddd; padding: 8px; text-align:center; }
+th { background-color: #0078D4; color: white; }
+.ok { color: green; font-weight: bold; }
+.warn { color: red; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<h2 align="center">System Health Monitoring Report</h2>
+<p align="center">Generated on: $(Get-Date)</p>
+
+<h3 align="center">CPU & Memory</h3>
+<table>
+<tr><th>Metric</th><th>Value</th><th>Status</th></tr>
+<tr><td>CPU Usage</td><td>$cpuUsage %</td><td class="$(if($cpuStatus -eq 'Normal'){'ok'}else{'warn'})">$cpuStatus</td></tr>
+<tr><td>Memory Usage</td><td>$memoryUsage %</td><td class="$(if($memoryStatus -eq 'Normal'){'ok'}else{'warn'})">$memoryStatus</td></tr>
+</table>
+
+<h3 align="center">Disk Usage</h3>
+<table>
+<tr><th>Drive</th><th>Free Space (%)</th></tr>
+"@
+
+foreach ($disk in $diskInfo) {
+    $diskClass = if ($disk.'FreeSpace(%)' -lt $diskThreshold) { "warn" } else { "ok" }
+    $html += "<tr><td>$($disk.DeviceID)</td><td class='$diskClass'>$($disk.'FreeSpace(%)')</td></tr>"
+}
+
+$html += @"
+</table>
+
+<h3 align="center">Critical Services</h3>
+<table>
+<tr><th>Service Name</th><th>Status</th></tr>
+"@
+
+foreach ($svc in $serviceStatus) {
+    $svcClass = if ($svc.Status -eq "Running") { "ok" } else { "warn" }
+    $html += "<tr><td>$($svc.Name)</td><td class='$svcClass'>$($svc.Status)</td></tr>"
+}
+
+$html += @"
+</table>
+
+</body>
+</html>
+"@
+
+# Save Report
+$html | Out-File $reportPath
+
+Write-Host "System Health Report generated at:" -ForegroundColor Green
+Write-Host $reportPath
