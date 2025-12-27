@@ -9,3 +9,8 @@
 ### How to Run
 ```powershell
 .\SystemHealthMonitor.ps1
+
+## Output Location
+Desktop
+└── System_Health_Report.html
+
